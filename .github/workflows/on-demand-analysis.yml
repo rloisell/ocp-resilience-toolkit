@@ -1,0 +1,59 @@
+# .github/workflows/on-demand-analysis.yml
+# Run an OCP resilience analysis on any namespace, on demand.
+# Ryan Loisell — Developer / Architect | GitHub Copilot | April 2026
+#
+# Trigger: Actions → On-Demand Resilience Analysis → Run workflow
+
+name: On-Demand Resilience Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: OCP namespace license plate prefix (e.g. f1b263)
+        required: true
+        type: string
+      cluster:
+        description: Source cluster
+        required: true
+        type: choice
+        options: [silver, gold, emerald]
+        default: silver
+      envs:
+        description: Environments to analyse (comma-separated)
+        required: false
+        default: dev,test,prod,tools
+        type: string
+      repo:
+        description: GitHub repo owner/name for cross-reference (optional)
+        required: false
+        type: string
+      author:
+        description: Report author name
+        required: false
+        default: GitHub Actions
+        type: string
+
+permissions:
+  contents: write   # upload artifacts, create releases
+
+jobs:
+  analyse:
+    name: Resilience Analysis — ${{ inputs.namespace }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4
+
+      - name: Run resilience analysis
+        uses: ./
+        with:
+          namespace:     ${{ inputs.namespace }}
+          cluster:       ${{ inputs.cluster }}
+          envs:          ${{ inputs.envs }}
+          repo:          ${{ inputs.repo }}
+          oc-server-url: ${{ inputs.cluster == 'silver' && secrets.OC_SILVER_URL || secrets.OC_GOLD_URL }}
+          oc-token:      ${{ inputs.cluster == 'silver' && secrets.OC_SILVER_SA_TOKEN || secrets.OC_GOLD_SA_TOKEN }}
+          gh-token:      ${{ secrets.GITHUB_TOKEN }}
+          llm-api-key:   ${{ secrets.GITHUB_MODELS_API_KEY }}
+          author:        ${{ inputs.author }}

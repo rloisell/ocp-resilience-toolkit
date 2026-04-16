@@ -1,0 +1,156 @@
+# action.yml — ocp-resilience-toolkit GitHub Composite Action
+# Ryan Loisell — Developer / Architect | GitHub Copilot | April 2026
+#
+# Run on-demand OCP resilience analysis from any BC Gov GitHub workflow.
+#
+# Usage:
+#   - uses: rloisell/ocp-resilience-toolkit@main
+#     with:
+#       namespace:     f1b263
+#       oc-server-url: ${{ secrets.OC_SILVER_URL }}
+#       oc-token:      ${{ secrets.OC_SILVER_SA_TOKEN }}
+#       llm-api-key:   ${{ secrets.GITHUB_MODELS_API_KEY }}
+
+name: OCP Resilience Analysis
+description: Collect, analyse, and render a resilience posture report for an OCP namespace.
+author: Ryan Loisell
+
+inputs:
+  namespace:
+    description: OCP license plate prefix (e.g. f1b263)
+    required: true
+  cluster:
+    description: Source cluster (silver | gold | emerald)
+    required: false
+    default: silver
+  envs:
+    description: Comma-separated environment suffixes
+    required: false
+    default: dev,test,prod,tools
+  repo:
+    description: GitHub repo owner/name for cross-reference (optional)
+    required: false
+    default: ""
+  oc-server-url:
+    description: OpenShift API server URL
+    required: false
+    default: ""
+  oc-token:
+    description: OpenShift service account token (read-only, cluster-reader)
+    required: false
+    default: ""
+  gh-token:
+    description: GitHub token for repo access and artifact upload
+    required: false
+    default: ${{ github.token }}
+  llm-api-key:
+    description: GitHub Models API key (PAT with models:read scope)
+    required: true
+  llm-model:
+    description: LLM model identifier
+    required: false
+    default: openai/gpt-4o
+  author:
+    description: Report author name
+    required: false
+    default: GitHub Actions
+
+outputs:
+  report-path:
+    description: Path to the generated markdown report
+    value: ${{ steps.paths.outputs.report_path }}
+  pdf-path:
+    description: Path to the generated PDF report
+    value: ${{ steps.paths.outputs.pdf_path }}
+  artifact-name:
+    description: Name of the uploaded GitHub artifact
+    value: ${{ steps.paths.outputs.artifact_name }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends \
+          pandoc chromium-browser jq curl
+        # Install oc CLI
+        OC_VERSION="4.14"
+        curl -sSL "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable-${OC_VERSION}/openshift-client-linux.tar.gz" \
+          | tar xz -C /usr/local/bin oc kubectl
+        oc version --client
+
+    - name: OC login
+      if: inputs.oc-token != '' && inputs.oc-server-url != ''
+      shell: bash
+      run: |
+        oc login \
+          --token="${{ inputs.oc-token }}" \
+          --server="${{ inputs.oc-server-url }}"
+
+    - name: Collect namespace data
+      shell: bash
+      run: |
+        bash "${{ github.action_path }}/collect/collect.sh" \
+          --namespace "${{ inputs.namespace }}" \
+          --cluster   "${{ inputs.cluster }}" \
+          --envs      "${{ inputs.envs }}" \
+          --repo      "${{ inputs.repo }}" \
+          --output    "./resilience-output"
+
+    - name: Generate report with AI
+      shell: bash
+      env:
+        GITHUB_TOKEN:         ${{ inputs.gh-token }}
+        GITHUB_MODELS_API_KEY: ${{ inputs.llm-api-key }}
+        LLM_MODEL:             ${{ inputs.llm-model }}
+        NAMESPACE:             ${{ inputs.namespace }}
+        CLUSTER:               ${{ inputs.cluster }}
+        ENVS:                  ${{ inputs.envs }}
+        REPO:                  ${{ inputs.repo }}
+        AUTHOR:                ${{ inputs.author }}
+      run: |
+        python3 "${{ github.action_path }}/scripts/generate-report.py" \
+          --summary    ./resilience-output/manifest-summary.md \
+          --guide      "${{ github.action_path }}/templates/report-sections.md" \
+          --output-dir ./resilience-output/report \
+          --app-name   "$(echo "${{ inputs.namespace }}" | tr '[:lower:]' '[:upper:]')"
+
+    - name: Render PDF
+      shell: bash
+      run: |
+        APP_NAME="$(echo "${{ inputs.namespace }}" | tr '[:lower:]' '[:upper:]')"
+        bash "${{ github.action_path }}/render/render.sh" \
+          --input  "./resilience-output/report/${APP_NAME}-Resilience-Report.md" \
+          --output "./resilience-output/report" \
+          --css    "${{ github.action_path }}/templates/style/report-style.css"
+
+    - name: Resolve output paths
+      id: paths
+      shell: bash
+      run: |
+        APP_NAME="$(echo "${{ inputs.namespace }}" | tr '[:lower:]' '[:upper:]')"
+        echo "report_path=./resilience-output/report/${APP_NAME}-Resilience-Report.md"   >> "$GITHUB_OUTPUT"
+        echo "pdf_path=./resilience-output/report/${APP_NAME}-Resilience-Report.pdf"     >> "$GITHUB_OUTPUT"
+        echo "artifact_name=resilience-report-${{ inputs.namespace }}-$(date +%Y%m%d)"  >> "$GITHUB_OUTPUT"
+
+    - name: Upload report artifact
+      uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf7f  # v4
+      with:
+        name:            ${{ steps.paths.outputs.artifact_name }}
+        path:            ./resilience-output/report/
+        retention-days:  90
+
+    - name: Step summary
+      shell: bash
+      run: |
+        echo "## Resilience Analysis Complete" >> "${GITHUB_STEP_SUMMARY}"
+        echo ""                                >> "${GITHUB_STEP_SUMMARY}"
+        echo "| | |"                           >> "${GITHUB_STEP_SUMMARY}"
+        echo "|---|---|"                        >> "${GITHUB_STEP_SUMMARY}"
+        echo "| Namespace | \`${{ inputs.namespace }}\` |" >> "${GITHUB_STEP_SUMMARY}"
+        echo "| Cluster   | \`${{ inputs.cluster }}\` |"   >> "${GITHUB_STEP_SUMMARY}"
+        echo "| Artifact  | \`${{ steps.paths.outputs.artifact_name }}\` |" >> "${GITHUB_STEP_SUMMARY}"
+        echo ""                                >> "${GITHUB_STEP_SUMMARY}"
+        echo "Download the PDF report from the **Artifacts** section of this run." >> "${GITHUB_STEP_SUMMARY}"
