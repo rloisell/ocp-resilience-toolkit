@@ -86,11 +86,11 @@ collect_environment() {
     return 0
   fi
 
-  # ── Core workloads ────────────────────────────────────────────────────────
-  oc get deployment,statefulset,daemonset,cronjob -n "${NS}" -o yaml \
+  # ── Core workloads (includes legacy DeploymentConfig) ────────────────────
+  oc get deployment,statefulset,daemonset,cronjob,deploymentconfig -n "${NS}" -o yaml \
     > "${OUT}/workloads.yaml" 2>/dev/null || echo "# No workloads" > "${OUT}/workloads.yaml"
 
-  oc get deployment,statefulset,daemonset -n "${NS}" \
+  oc get deployment,statefulset,daemonset,deploymentconfig -n "${NS}" \
     -o custom-columns='NAME:.metadata.name,KIND:.kind,REPLICAS:.spec.replicas,STRATEGY:.spec.strategy.type' \
     --no-headers 2>/dev/null > "${OUT}/workload-summary.txt" \
     || echo "(none)" > "${OUT}/workload-summary.txt"
@@ -183,30 +183,37 @@ collect_environment() {
     > "${OUT}/rollout-history.txt" || echo "(no deployments)" > "${OUT}/rollout-history.txt"
 
   # ── Detailed workload JSON (probes, affinity, resources) ──────────────────
+  # Includes DeploymentConfig (legacy OpenShift) where strategy lives at .spec.strategy
+  # and template at .spec.template (no .spec.template.spec wrapper difference vs Deployment).
   if command -v jq &>/dev/null; then
-    oc get deployment,statefulset -n "${NS}" -o json 2>/dev/null \
-      | jq '[.items[] | {
-          name:       .metadata.name,
-          kind:       .kind,
-          replicas:   .spec.replicas,
-          strategy:   .spec.strategy,
-          terminationGracePeriodSeconds: .spec.template.spec.terminationGracePeriodSeconds,
-          priorityClassName: .spec.template.spec.priorityClassName,
-          containers: [.spec.template.spec.containers[] | {
-            name:          .name,
-            image:         .image,
-            livenessProbe: .livenessProbe,
-            readinessProbe: .readinessProbe,
-            startupProbe:  .startupProbe,
-            resources:     .resources,
-            lifecycle:     .lifecycle
-          }],
-          affinity:                   .spec.template.spec.affinity,
-          topologySpreadConstraints:  .spec.template.spec.topologySpreadConstraints,
-          nodeSelector:               .spec.template.spec.nodeSelector,
-          tolerations:                .spec.template.spec.tolerations
-        }]' > "${OUT}/workload-detail.json" 2>/dev/null \
-      || echo "[]" > "${OUT}/workload-detail.json"
+    {
+      oc get deployment,statefulset,deploymentconfig -n "${NS}" -o json 2>/dev/null \
+        | jq '[.items[] | {
+            name:       .metadata.name,
+            kind:       .kind,
+            replicas:   .spec.replicas,
+            strategy:   .spec.strategy,
+            terminationGracePeriodSeconds: .spec.template.spec.terminationGracePeriodSeconds,
+            priorityClassName: .spec.template.spec.priorityClassName,
+            containers: [.spec.template.spec.containers[] | {
+              name:          .name,
+              image:         .image,
+              livenessProbe: .livenessProbe,
+              readinessProbe: .readinessProbe,
+              startupProbe:  .startupProbe,
+              resources:     .resources,
+              lifecycle:     .lifecycle
+            }],
+            affinity:                   .spec.template.spec.affinity,
+            topologySpreadConstraints:  .spec.template.spec.topologySpreadConstraints,
+            nodeSelector:               .spec.template.spec.nodeSelector,
+            tolerations:                .spec.template.spec.tolerations
+          }]' 2>/dev/null
+    } > "${OUT}/workload-detail.json"
+    # If empty or invalid, fall back to []
+    if ! jq -e 'type == "array"' "${OUT}/workload-detail.json" >/dev/null 2>&1; then
+      echo "[]" > "${OUT}/workload-detail.json"
+    fi
   fi
 
   echo "  ✓ ${NS}" >&2
