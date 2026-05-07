@@ -30,13 +30,18 @@ ocp-resilience-toolkit/
 
 ---
 
-## Three-tier usage
+## Two-tier usage (Tier 3 deferred)
 
 | Tier | Where | How |
 |------|-------|-----|
 | **1 — VS Code** | Any project | Open `.github/prompts/ocp-resilience-analysis.prompt.md` in Copilot Chat agent mode |
 | **2 — GitHub Actions** | Any BC Gov repo | Add the composite action to your workflow |
-| **3 — Copilot Chat** | Any team | `@bc-resilience analyze namespace:f1b263` |
+| ~~3 — Copilot Chat~~ | _Future / planned_ | ~~`@bc-resilience analyze namespace:f1b263`~~ — **deferred, see note below** |
+
+> 📝 **Tier 3 status (May 2026):** Scoped but **not implemented**. The team
+> scaled back to Tier 2 as the supported delivery model. The companion repo
+> [`bc-resilience-service`](https://github.com/rloisell/bc-resilience-service) holds
+> an early prototype but is **not maintained or deployed** to Emerald.
 
 ---
 
@@ -84,12 +89,11 @@ Or trigger manually via **Actions → On-Demand Resilience Analysis → Run work
 Open `.github/prompts/ocp-resilience-analysis.prompt.md` → fill in the input variables →
 Copilot agent runs the full five-phase analysis in your workspace.
 
-### Option D — Copilot Extension
+### ~~Option D — Copilot Extension~~ (deferred)
 
-```
-@bc-resilience analyze namespace:f1b263
-@bc-resilience analyze namespace:f1b263 repo:bcgov-c/myapp cluster:silver
-```
+> Not available. The `@bc-resilience` Copilot Extension was scoped under the
+> Tier 3 design but **scaled back to Tier 2** in May 2026. Use Option B (GitHub
+> Actions) or Option C (VS Code prompt) instead.
 
 ---
 
@@ -149,5 +153,5 @@ Copilot agent runs the full five-phase analysis in your workspace.
 | Tool | Purpose |
 |------|---------|
 | `ocp-migration-toolkit` | Migration gap analysis (Silver/Gold → Emerald) |
-| `bc-migrate-service` | `@bc-migrate` Copilot Extension — migration analysis |
-| `bc-resilience-service` | `@bc-resilience` Copilot Extension — this toolkit as a service |
+| `bc-migrate-service` | _Deprecated_ — Tier 3 `@bc-migrate` extension prototype (not deployed) |
+| `bc-resilience-service` | _Deprecated_ — Tier 3 `@bc-resilience` extension prototype (not deployed) |
